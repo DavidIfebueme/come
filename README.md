@@ -1,6 +1,6 @@
 # come
 
-`come` is a custom api language that transpiles to go.
+`come` is a vibe coded custom api language that transpiles to go.
 
 it supports:
 - generic simple api generation
