@@ -1,0 +1,12 @@
+vibecode "backend-wizards-stage1"
+stash "./profiles.db"
+dripcors "*"
+
+tea genderize "https://api.genderize.io"
+tea agify "https://api.agify.io"
+tea nationalize "https://api.nationalize.io"
+
+cook post "/api/profiles" create_profile
+cook get "/api/profiles/:id" get_profile
+cook get "/api/profiles" list_profiles
+cook delete "/api/profiles/:id" delete_profile

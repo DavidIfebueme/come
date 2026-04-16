@@ -1,0 +1,6 @@
+vibecode "simple-api"
+dripcors "*"
+
+cook get "/api/hello" hello
+cook post "/api/ping" ping
+cook get "/api/users/:id" get_user
