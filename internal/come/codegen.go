@@ -25,6 +25,13 @@ func Generate(proj *Project) map[string]string {
 		for _, b := range feat.Babbles {
 			files[prefix+"babble.go"] = GenBabble(proj, feat, b)
 		}
+		for i, rg := range feat.RawGo {
+			if i == 0 {
+				files[prefix+"rawgo.go"] = GenRawGo(feat, rg)
+			} else {
+				files[fmt.Sprintf("%srawgo_%d.go", prefix, i)] = GenRawGo(feat, rg)
+			}
+		}
 	}
 	for path, content := range GenMigrations(proj) {
 		files[path] = content
@@ -343,4 +350,8 @@ func isListRoute(r RouteDecl) bool {
 
 func isGetRoute(r RouteDecl) bool {
 	return r.Method == "GET" && r.Grabit != nil && r.Grabit.One
+}
+
+func GenRawGo(feat Feature, rg RawGoDecl) string {
+	return "package " + feat.Name + "\n\n" + rg.Code + "\n"
 }

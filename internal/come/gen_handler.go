@@ -28,6 +28,7 @@ func GenHandler(proj *Project, feat Feature) string {
 	}
 
 	needsStrconv := false
+	needsFmt := false
 	for _, r := range feat.Routes {
 		if r.Grabit != nil {
 			if r.Grabit.Limit != nil {
@@ -38,6 +39,7 @@ func GenHandler(proj *Project, feat Feature) string {
 		if r.Grabit.Page != nil {
 			if r.Grabit.Page.Kind == SourceQuery {
 				needsStrconv = true
+				needsFmt = true
 			}
 		}
 		if r.Grabit.Offset != nil {
@@ -49,6 +51,9 @@ func GenHandler(proj *Project, feat Feature) string {
 	}
 	if needsStrconv {
 		sb.WriteString("\t\"strconv\"\n")
+	}
+	if needsFmt {
+		sb.WriteString("\t\"fmt\"\n")
 	}
 
 	needsStrings := false
@@ -272,7 +277,21 @@ func genHandlerMethod(proj *Project, feat Feature, r RouteDecl) string {
 				if r.Grabit != nil && !r.Grabit.One && r.Grabit.Operation == GrabitSelect {
 					hasPage := r.Grabit.Page != nil && r.Grabit.Page.Kind == SourceQuery
 					if hasPage {
-						sb.WriteString("\tjson.NewEncoder(w).Encode(map[string]any{\"status\":\"success\",\"page\":params.Page,\"limit\":params.Limit,\"total\":total,\"data\":results})\n")
+						sb.WriteString("\ttotalPages:=total/params.Limit\n")
+						sb.WriteString("\tif total%params.Limit!=0{totalPages++}\n")
+						sb.WriteString("\tvar prevPage *int\n")
+						sb.WriteString("\tif params.Page>1{p:=params.Page-1;prevPage=&p}\n")
+						sb.WriteString("\tvar nextPage *int\n")
+						sb.WriteString("\tif params.Page<totalPages{n:=params.Page+1;nextPage=&n}\n")
+						sb.WriteString(fmt.Sprintf("\tselfLink:=fmt.Sprintf(\"%s?page=%%d&limit=%%d\",params.Page,params.Limit)\n", r.Path))
+						sb.WriteString("\tnextLink:=\"\"\n")
+						sb.WriteString(fmt.Sprintf("\tif nextPage!=nil{nextLink=fmt.Sprintf(\"%s?page=%%d&limit=%%d\",*nextPage,params.Limit)}\n", r.Path))
+						sb.WriteString("\tprevLink:=\"\"\n")
+						sb.WriteString(fmt.Sprintf("\tif prevPage!=nil{prevLink=fmt.Sprintf(\"%s?page=%%d&limit=%%d\",*prevPage,params.Limit)}\n", r.Path))
+						sb.WriteString("\tlinks:=map[string]any{\"self\":selfLink}\n")
+						sb.WriteString("\tif nextLink!=\"\"{links[\"next\"]=nextLink}else{links[\"next\"]=nil}\n")
+						sb.WriteString("\tif prevLink!=\"\"{links[\"prev\"]=prevLink}else{links[\"prev\"]=nil}\n")
+						sb.WriteString("\tjson.NewEncoder(w).Encode(map[string]any{\"status\":\"success\",\"page\":params.Page,\"limit\":params.Limit,\"total\":total,\"total_pages\":totalPages,\"links\":links,\"data\":results})\n")
 					} else {
 						sb.WriteString("\tjson.NewEncoder(w).Encode(map[string]any{\"status\":\"success\",\"data\":results,\"total\":total,\"page\":(params.Offset/params.Limit)+1,\"limit\":params.Limit})\n")
 					}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -252,6 +253,27 @@ func buildProject() {
 	}
 
 	fmt.Printf("compiled come -> %s\n", outDir)
+
+	customDir := filepath.Join(rootDir, "custom")
+	if _, err := os.ReadDir(customDir); err == nil {
+		filepath.WalkDir(customDir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil
+			}
+			rel, _ := filepath.Rel(customDir, path)
+			target := filepath.Join(outDir, rel)
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+			os.WriteFile(target, data, 0o644)
+			fmt.Printf("  merged custom: %s\n", rel)
+			return nil
+		})
+	}
 
 	tidyCmd := exec.Command("go", "mod", "tidy")
 	tidyCmd.Dir = outDir

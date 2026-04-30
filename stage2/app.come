@@ -1,0 +1,14 @@
+nogo "stage2"
+
+pileup postgres "postgres://localhost/stage2"
+
+aura {
+    port 8080
+    read_timeout 10s
+    write_timeout 10s
+    idle_timeout 60s
+}
+
+unblockthehomies "*"
+
+borrow "./profiles"

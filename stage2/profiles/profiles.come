@@ -1,0 +1,74 @@
+pick Gender {
+    male
+    female
+}
+
+pick AgeGroup {
+    child
+    teenager
+    adult
+    senior
+}
+
+manifest Profiles {
+    id                  uuid      @primary @default(gen_random_uuid)
+    name                string    @unique
+    gender              string
+    gender_probability  float
+    age                 int
+    age_group           string
+    country_id          string
+    country_name        string
+    country_probability float
+    created_at          timestamp @default(now)
+
+    spotlight id
+    spotlight(name)
+}
+
+yeet GET "/api/profiles" list_profiles {
+    grabit {
+        from Profiles
+        where gender == query.gender
+        where age_group == query.age_group
+        where country_id == query.country_id
+        where age >= query.min_age
+        where age <= query.max_age
+        where gender_probability >= query.min_gender_probability
+        where country_probability >= query.min_country_probability
+        order_by query.sort_by @default(created_at) @oneof(age, created_at, gender_probability)
+        order_dir query.order @default(desc)
+        limit query.limit @default(10) @max(50)
+        page query.page @default(1)
+    }
+
+    hurl 200 result
+    hurl 400 validation
+}
+
+yeet GET "/api/profiles/:id" get_profile {
+    grabit {
+        from Profiles
+        where id == param.id
+        one
+    }
+
+    hurl 200 result
+    hurl 404 {status: "error", message: "Profile not found"}
+}
+
+babble Profiles {
+    keyword "male males man men boys" -> gender=male
+    keyword "female females woman women girls" -> gender=female
+    keyword "children kids" -> age_group=child
+    keyword "teenagers teens" -> age_group=teenager
+    keyword "adults grown" -> age_group=adult
+    keyword "seniors elderly" -> age_group=senior
+    keyword "young" -> min_age=16 max_age=24
+    prefix "above over" -> min_age=int
+    prefix "below under" -> max_age=int
+    prefix "from in" -> country_id=country
+    ignore "and or the people person"
+}
+
+spawnchaos "./seed_profiles.json" root "./seed_profiles.json" unique "name"

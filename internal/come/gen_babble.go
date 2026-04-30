@@ -20,7 +20,14 @@ func GenBabble(proj *Project, feat Feature, babble BabbleDecl) string {
 	sb.WriteString("\t\"strconv\"\n")
 	sb.WriteString("\t\"strings\"\n")
 	sb.WriteString(fmt.Sprintf("\t\"%s/pkg/server\"\n", proj.AppName))
+	if proj.Bouncer != nil {
+		sb.WriteString(fmt.Sprintf("\t\"%s/pkg/auth\"\n", proj.AppName))
+	}
 	sb.WriteString(")\n\n")
+
+	if proj.Bouncer != nil {
+		sb.WriteString("var _=auth.JWTAuth{}\n\n")
+	}
 
 	sb.WriteString(genBabbleParser(babble, model))
 	sb.WriteString(genBabbleHandler(proj, feat, babble, model))
@@ -201,6 +208,16 @@ func genBabbleHandler(proj *Project, feat Feature, babble BabbleDecl, model *Man
 
 	sb.WriteString(fmt.Sprintf("func (h *Handler)%s(w http.ResponseWriter,r *http.Request){\n", handlerName))
 
+	if proj.Bouncer != nil {
+		sb.WriteString("\tif h.auth!=nil{\n")
+		sb.WriteString("\t\t_,err:=h.auth.Validate(r)\n")
+		sb.WriteString("\t\tif err!=nil{\n")
+		sb.WriteString("\t\t\tserver.Unauthorized(w)\n")
+		sb.WriteString("\t\t\treturn\n")
+		sb.WriteString("\t\t}\n")
+		sb.WriteString("\t}\n")
+	}
+
 	sb.WriteString("\tq:=r.URL.Query().Get(\"q\")\n")
 	sb.WriteString("\tif q==\"\"{\n")
 	sb.WriteString("\t\tserver.Error(w,http.StatusBadRequest,\"missing query parameter 'q'\")\n")
@@ -224,7 +241,22 @@ func genBabbleHandler(proj *Project, feat Feature, babble BabbleDecl, model *Man
 	sb.WriteString("\t}\n\n")
 
 	sb.WriteString("\tw.Header().Set(\"Content-Type\",\"application/json\")\n")
-	sb.WriteString("\tjson.NewEncoder(w).Encode(map[string]any{\"status\":\"success\",\"page\":params.Page,\"limit\":params.Limit,\"total\":total,\"data\":results})\n")
+	sb.WriteString("\ttotalPages:=total/params.Limit\n")
+	sb.WriteString("\tif total%params.Limit!=0{totalPages++}\n")
+	sb.WriteString("\tvar prevPage *int\n")
+	sb.WriteString("\tif params.Page>1{p:=params.Page-1;prevPage=&p}\n")
+	sb.WriteString("\tvar nextPage *int\n")
+	sb.WriteString("\tif params.Page<totalPages{n:=params.Page+1;nextPage=&n}\n")
+	searchPath := "/api/" + toSnakeCase(babble.Model) + "/search"
+	sb.WriteString(fmt.Sprintf("\tselfLink:=fmt.Sprintf(\"%s?page=%%d&limit=%%d\",params.Page,params.Limit)\n", searchPath))
+	sb.WriteString("\tnextLink:=\"\"\n")
+	sb.WriteString(fmt.Sprintf("\tif nextPage!=nil{nextLink=fmt.Sprintf(\"%s?page=%%d&limit=%%d\",*nextPage,params.Limit)}\n", searchPath))
+	sb.WriteString("\tprevLink:=\"\"\n")
+	sb.WriteString(fmt.Sprintf("\tif prevPage!=nil{prevLink=fmt.Sprintf(\"%s?page=%%d&limit=%%d\",*prevPage,params.Limit)}\n", searchPath))
+	sb.WriteString("\tlinks:=map[string]any{\"self\":selfLink}\n")
+	sb.WriteString("\tif nextLink!=\"\"{links[\"next\"]=nextLink}else{links[\"next\"]=nil}\n")
+	sb.WriteString("\tif prevLink!=\"\"{links[\"prev\"]=prevLink}else{links[\"prev\"]=nil}\n")
+	sb.WriteString("\tjson.NewEncoder(w).Encode(map[string]any{\"status\":\"success\",\"page\":params.Page,\"limit\":params.Limit,\"total\":total,\"total_pages\":totalPages,\"links\":links,\"data\":results})\n")
 	sb.WriteString("}\n\n")
 
 	return sb.String()
