@@ -2,6 +2,7 @@ package come
 
 import (
 	"fmt"
+	"strings"
 )
 
 type Parser struct {
@@ -103,6 +104,8 @@ func (p *Parser) parseDeclaration() (Node, error) {
 		return p.parseRawGo()
 	case "reshape":
 		return p.parseReshape()
+	case "babble":
+		return p.parseBabble()
 	default:
 		return nil, fmt.Errorf("unexpected keyword %q at line %d", tok.Val, tok.Line)
 	}
@@ -632,6 +635,9 @@ func (p *Parser) parseGrabit() (GrabitDecl, error) {
 				if dec.Name == "default" && len(dec.Args) > 0 {
 					decl.OrderByDefault = dec.Args[0]
 				}
+				if dec.Name == "oneof" {
+					decl.OrderByAllowed = dec.Args
+				}
 			}
 		case "order_dir":
 			p.advance()
@@ -682,6 +688,22 @@ func (p *Parser) parseGrabit() (GrabitDecl, error) {
 				}
 				if dec.Name == "default" && len(dec.Args) > 0 {
 					fmt.Sscanf(dec.Args[0], "%d", &decl.OffsetDefault)
+				}
+			}
+		case "page":
+			p.advance()
+			src, err := p.parseValueSource()
+			if err != nil {
+				return GrabitDecl{}, err
+			}
+			decl.Page = &src
+			for p.peek().Type == TokDecorator {
+				dec, err := p.parseDecorator()
+				if err != nil {
+					return GrabitDecl{}, err
+				}
+				if dec.Name == "default" && len(dec.Args) > 0 {
+					fmt.Sscanf(dec.Args[0], "%d", &decl.PageDefault)
 				}
 			}
 		case "one":
@@ -917,7 +939,16 @@ func (p *Parser) parseSpawnChaos() (Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	return SpawnChaosDecl{Path: pathTok.Val, Root: rootTok.Val, Unique: uniqueTok.Val}, nil
+	decl := SpawnChaosDecl{Path: pathTok.Val, Root: rootTok.Val, Unique: uniqueTok.Val}
+	if p.peek().Type == TokIdent && p.peek().Val == "key" {
+		p.advance()
+		keyTok, err := p.expectType(TokString)
+		if err != nil {
+			return nil, err
+		}
+		decl.Key = keyTok.Val
+	}
+	return decl, nil
 }
 
 func (p *Parser) parseVibes() (Node, error) {
@@ -992,4 +1023,121 @@ func (p *Parser) parseReshape() (Node, error) {
 		return nil, err
 	}
 	return ReshapeDecl{Up: upTok.Val, Down: downTok.Val}, nil
+}
+
+func (p *Parser) parseBabble() (Node, error) {
+	p.advance()
+	modelTok, err := p.expectType(TokIdent)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expectType(TokLBrace); err != nil {
+		return nil, err
+	}
+	decl := BabbleDecl{Model: modelTok.Val}
+	for p.peek().Type != TokRBrace && !p.atEnd() {
+		tok := p.peek()
+		if tok.Type != TokIdent {
+			return nil, fmt.Errorf("expected keyword/prefix/ignore in babble block, got %s at line %d", tok, tok.Line)
+		}
+		switch tok.Val {
+		case "keyword":
+			p.advance()
+			rule, err := p.parseBabbleKeyword()
+			if err != nil {
+				return nil, err
+			}
+			decl.Rules = append(decl.Rules, rule)
+		case "prefix":
+			p.advance()
+			rule, err := p.parseBabblePrefix()
+			if err != nil {
+				return nil, err
+			}
+			decl.Rules = append(decl.Rules, rule)
+		case "ignore":
+			p.advance()
+			words, err := p.parseBabbleWords()
+			if err != nil {
+				return nil, err
+			}
+			decl.Ignore = append(decl.Ignore, words...)
+		default:
+			return nil, fmt.Errorf("unexpected keyword %q in babble block at line %d", tok.Val, tok.Line)
+		}
+	}
+	if _, err := p.expectType(TokRBrace); err != nil {
+		return nil, err
+	}
+	return decl, nil
+}
+
+func (p *Parser) parseBabbleWords() ([]string, error) {
+	tok, err := p.expectType(TokString)
+	if err != nil {
+		return nil, err
+	}
+	return strings.Fields(tok.Val), nil
+}
+
+func (p *Parser) parseBabbleKeyword() (BabbleRule, error) {
+	words, err := p.parseBabbleWords()
+	if err != nil {
+		return BabbleRule{}, err
+	}
+	if _, err := p.expectType(TokArrow); err != nil {
+		return BabbleRule{}, err
+	}
+	filters, err := p.parseBabbleFilters()
+	if err != nil {
+		return BabbleRule{}, err
+	}
+	return BabbleRule{Kind: BabbleKeyword, Words: words, Filters: filters}, nil
+}
+
+func (p *Parser) parseBabblePrefix() (BabbleRule, error) {
+	words, err := p.parseBabbleWords()
+	if err != nil {
+		return BabbleRule{}, err
+	}
+	if _, err := p.expectType(TokArrow); err != nil {
+		return BabbleRule{}, err
+	}
+	fieldTok, err := p.expectType(TokIdent)
+	if err != nil {
+		return BabbleRule{}, err
+	}
+	if _, err := p.expectType(TokAssign); err != nil {
+		return BabbleRule{}, err
+	}
+	nextAsTok, err := p.expectType(TokIdent)
+	if err != nil {
+		return BabbleRule{}, err
+	}
+	return BabbleRule{Kind: BabblePrefix, Words: words, Filters: map[string]string{fieldTok.Val: nextAsTok.Val}}, nil
+}
+
+func (p *Parser) parseBabbleFilters() (map[string]string, error) {
+	filters := map[string]string{}
+	for {
+		if p.peek().Type != TokIdent {
+			break
+		}
+		if p.peek().Val == "keyword" || p.peek().Val == "prefix" || p.peek().Val == "ignore" {
+			break
+		}
+		fieldTok, err := p.expectType(TokIdent)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.expectType(TokAssign); err != nil {
+			return nil, err
+		}
+		valTok := p.advance()
+		filters[fieldTok.Val] = valTok.Val
+		if p.peek().Type == TokComma {
+			p.advance()
+		}
+	}
+	return filters, nil
 }

@@ -17,6 +17,10 @@ func GenRoutes(proj *Project, feat Feature) string {
 		pascalHandler := toPascalCase(r.Handler)
 		sb.WriteString(fmt.Sprintf("\tmux.HandleFunc(%q,h.%s)\n", pattern, pascalHandler))
 	}
+	for _, b := range feat.Babbles {
+		searchPath := "GET /api/" + toSnakeCase(b.Model) + "/search"
+		sb.WriteString(fmt.Sprintf("\tmux.HandleFunc(%q,h.Search%s)\n", searchPath, b.Model))
+	}
 	sb.WriteString("}\n")
 
 	return sb.String()

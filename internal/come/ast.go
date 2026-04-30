@@ -149,11 +149,14 @@ type GrabitDecl struct {
 	Wheres         []WhereClause
 	OrderBy        *ValueSource
 	OrderByDefault string
+	OrderByAllowed []string
 	OrderDir       *ValueSource
 	OrderDirDefault string
 	Limit          *ValueSource
 	LimitDefault   int
 	LimitMax       int
+	Page           *ValueSource
+	PageDefault    int
 	Offset         *ValueSource
 	OffsetDefault  int
 	One            bool
@@ -232,6 +235,7 @@ type SpawnChaosDecl struct {
 	Path   string
 	Root   string
 	Unique string
+	Key    string
 }
 
 func (SpawnChaosDecl) node() {}
@@ -248,6 +252,28 @@ type ReshapeDecl struct {
 }
 
 func (ReshapeDecl) node() {}
+
+type BabbleDecl struct {
+	Model  string
+	Rules  []BabbleRule
+	Ignore []string
+}
+
+func (BabbleDecl) node() {}
+
+type BabbleRuleKind int
+
+const (
+	BabbleKeyword BabbleRuleKind = iota
+	BabblePrefix
+)
+
+type BabbleRule struct {
+	Kind    BabbleRuleKind
+	Words   []string
+	Filters map[string]string
+	NextAs  string
+}
 
 type Project struct {
 	AppName  string
@@ -268,4 +294,5 @@ type Feature struct {
 	Seeds     []SpawnChaosDecl
 	RawGo     []RawGoDecl
 	Reshapes  []ReshapeDecl
+	Babbles   []BabbleDecl
 }

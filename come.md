@@ -280,10 +280,10 @@ grabit {
   where age <= query.max_age
   where role == query.role
   where name ilike query.name
-  order_by query.sort_by @default(created_at)
+  order_by query.sort_by @default(created_at) @oneof(age, created_at, name)
   order_dir query.order @default(desc)
   limit query.limit @default(20) @max(100)
-  offset query.offset @default(0)
+  page query.page @default(1)
 }
 ```
 
@@ -349,7 +349,7 @@ hurl 404 {status: "error", message: "not found"}   # custom json
 
 the first 2xx hurl is the success response. 4xx hurls are used in error handling.
 
-for list queries, `hurl 200 result` returns `{"data": [...], "total": N, "page": N, "limit": N}`.
+for list queries with `page`, `hurl 200 result` returns `{"status":"success","page":N,"limit":N,"total":N,"data":[...]}`. for list queries with `offset`, the response uses `"page":(offset/limit)+1` instead. unknown query parameters are rejected with `{"status":"error","message":"Invalid query parameters"}`.
 
 ### bouncer sign - issue token
 
@@ -390,6 +390,41 @@ reshape down "ALTER TABLE users DROP COLUMN bio"
 ```
 
 adds custom sql to the migration files beyond what manifests generate.
+
+### babble - natural language query endpoint
+
+```
+babble Profiles {
+    keyword "male males man men boys" -> gender=male
+    keyword "female females woman women girls" -> gender=female
+    keyword "children kids" -> age_group=child
+    keyword "teenagers teens" -> age_group=teenager
+    keyword "adults grown" -> age_group=adult
+    keyword "seniors elderly" -> age_group=senior
+    keyword "young" -> min_age=16 max_age=24
+    prefix "above over" -> min_age=int
+    prefix "below under" -> max_age=int
+    prefix "from in" -> country_id=country
+    ignore "and or the people person"
+}
+```
+
+generates a natural language search endpoint at `GET /api/<model>/search?q=<query>`. the parser is rule-based — no ai, no llms.
+
+**keyword** maps trigger words to fixed filter values. all words in the string are treated as synonyms. multiple filters can be set per keyword (space-separated: `min_age=16 max_age=24`).
+
+**prefix** maps trigger words that consume the next token as a value. the value type determines how it's parsed:
+- `int` — parsed as integer (e.g., "above 30" → min_age=30)
+- `country` — looked up in a built-in country name→iso code table (e.g., "from nigeria" → country_id=NG)
+- any other type — used as-is string
+
+**ignore** specifies words to skip during parsing (conjunctions, articles, etc).
+
+the generated endpoint:
+- returns `{"status":"success","page":1,"limit":10,"total":N,"data":[...]}` on match
+- returns `{"status":"error","message":"Unable to interpret query"}` when no keywords match
+- supports `page` and `limit` query params for pagination (limit max 50)
+- combines all matched filters with AND logic
 
 ## generated dependencies
 
@@ -460,7 +495,7 @@ yeet GET "/api/users" list_users {
     order_by query.sort_by @default(created_at)
     order_dir query.order @default(desc)
     limit query.limit @default(20)
-    offset query.offset @default(0)
+    page query.page @default(1)
   }
 
   hurl 200 result

@@ -22,9 +22,15 @@ func Generate(proj *Project) map[string]string {
 		files[prefix+"handler.go"] = GenHandler(proj, feat)
 		files[prefix+"repository.go"] = GenRepository(proj, feat)
 		files[prefix+"routes.go"] = GenRoutes(proj, feat)
+		for _, b := range feat.Babbles {
+			files[prefix+"babble.go"] = GenBabble(proj, feat, b)
+		}
 	}
 	for path, content := range GenMigrations(proj) {
 		files[path] = content
+	}
+	if seedCode := GenSeed(proj); seedCode != "" {
+		files["cmd/seed/main.go"] = seedCode
 	}
 	return files
 }

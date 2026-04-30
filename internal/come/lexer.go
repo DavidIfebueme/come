@@ -33,6 +33,7 @@ const (
 	TokGt
 	TokLt
 	TokAssign
+	TokArrow
 )
 
 var tokNames = map[TokenType]string{
@@ -60,6 +61,7 @@ var tokNames = map[TokenType]string{
 	TokGt:        ">",
 	TokLt:        "<",
 	TokAssign:    "=",
+	TokArrow:     "->",
 }
 
 func (t TokenType) String() string {
@@ -224,6 +226,13 @@ func (l *Lexer) nextToken() (Token, error) {
 			return Token{Type: TokNeq, Val: "!=", Line: line, Col: col}, nil
 		}
 		return Token{}, fmt.Errorf("unexpected character '!' at line %d col %d", line, col)
+	case '-':
+		l.advance()
+		if l.peek() == '>' {
+			l.advance()
+			return Token{Type: TokArrow, Val: "->", Line: line, Col: col}, nil
+		}
+		return Token{}, fmt.Errorf("unexpected character '-' at line %d col %d", line, col)
 	case '>':
 		l.advance()
 		if l.peek() == '=' {

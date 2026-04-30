@@ -30,9 +30,21 @@ func GenHandler(proj *Project, feat Feature) string {
 	needsStrconv := false
 	for _, r := range feat.Routes {
 		if r.Grabit != nil {
-			if r.Grabit.Limit != nil || r.Grabit.Offset != nil {
+			if r.Grabit.Limit != nil {
+			if r.Grabit.Limit.Kind == SourceQuery {
 				needsStrconv = true
 			}
+		}
+		if r.Grabit.Page != nil {
+			if r.Grabit.Page.Kind == SourceQuery {
+				needsStrconv = true
+			}
+		}
+		if r.Grabit.Offset != nil {
+			if r.Grabit.Offset.Kind == SourceQuery {
+				needsStrconv = true
+			}
+		}
 		}
 	}
 	if needsStrconv {
@@ -149,7 +161,11 @@ func genHandlerMethod(proj *Project, feat Feature, r RouteDecl) string {
 	}
 
 	if isListRoute(r) && r.Grabit != nil {
-		sb.WriteString(fmt.Sprintf("\tparams:=parse%sParams(r)\n", pascal))
+		sb.WriteString(fmt.Sprintf("\tparams,ok:=parse%sParams(r)\n", pascal))
+		sb.WriteString("\tif !ok{\n")
+		sb.WriteString("\t\tserver.InvalidQueryParams(w)\n")
+		sb.WriteString("\t\treturn\n")
+		sb.WriteString("\t}\n")
 	}
 
 	if isGetRoute(r) || isDeleteRoute(r) {
@@ -254,7 +270,12 @@ func genHandlerMethod(proj *Project, feat Feature, r RouteDecl) string {
 					sb.WriteString(fmt.Sprintf("\tw.WriteHeader(%d)\n", hurl.StatusCode))
 				}
 				if r.Grabit != nil && !r.Grabit.One && r.Grabit.Operation == GrabitSelect {
-					sb.WriteString("\tjson.NewEncoder(w).Encode(map[string]any{\"data\":results,\"total\":total,\"page\":(params.Offset/params.Limit)+1,\"limit\":params.Limit})\n")
+					hasPage := r.Grabit.Page != nil && r.Grabit.Page.Kind == SourceQuery
+					if hasPage {
+						sb.WriteString("\tjson.NewEncoder(w).Encode(map[string]any{\"status\":\"success\",\"page\":params.Page,\"limit\":params.Limit,\"total\":total,\"data\":results})\n")
+					} else {
+						sb.WriteString("\tjson.NewEncoder(w).Encode(map[string]any{\"status\":\"success\",\"data\":results,\"total\":total,\"page\":(params.Offset/params.Limit)+1,\"limit\":params.Limit})\n")
+					}
 				} else {
 					sb.WriteString("\tjson.NewEncoder(w).Encode(result)\n")
 				}
@@ -404,8 +425,43 @@ func genParamParser(r RouteDecl) string {
 	var sb strings.Builder
 	pascal := toPascalCase(r.Handler)
 
-	sb.WriteString(fmt.Sprintf("func parse%sParams(r *http.Request)%sParams{\n", pascal, pascal))
+	sb.WriteString(fmt.Sprintf("func parse%sParams(r *http.Request)(%sParams,bool){\n", pascal, pascal))
 	sb.WriteString(fmt.Sprintf("\tvar params %sParams\n", pascal))
+
+	var allowedParams []string
+	if r.Grabit != nil {
+		for _, w := range r.Grabit.Wheres {
+			if w.Source.Kind == SourceQuery {
+				allowedParams = append(allowedParams, w.Source.Value)
+			}
+		}
+		if r.Grabit.OrderBy != nil && r.Grabit.OrderBy.Kind == SourceQuery {
+			allowedParams = append(allowedParams, r.Grabit.OrderBy.Value)
+		}
+		if r.Grabit.OrderDir != nil && r.Grabit.OrderDir.Kind == SourceQuery {
+			allowedParams = append(allowedParams, r.Grabit.OrderDir.Value)
+		}
+		if r.Grabit.Limit != nil && r.Grabit.Limit.Kind == SourceQuery {
+			allowedParams = append(allowedParams, r.Grabit.Limit.Value)
+		}
+		if r.Grabit.Page != nil && r.Grabit.Page.Kind == SourceQuery {
+			allowedParams = append(allowedParams, r.Grabit.Page.Value)
+		}
+		if r.Grabit.Offset != nil && r.Grabit.Offset.Kind == SourceQuery {
+			allowedParams = append(allowedParams, r.Grabit.Offset.Value)
+		}
+	}
+
+	sb.WriteString("\tallowed:=map[string]bool{")
+	for _, p := range allowedParams {
+		sb.WriteString(fmt.Sprintf("%q:true,", p))
+	}
+	sb.WriteString("}\n")
+	sb.WriteString("\tfor k:=range r.URL.Query(){\n")
+	sb.WriteString("\t\tif !allowed[k]{\n")
+	sb.WriteString("\t\t\treturn params,false\n")
+	sb.WriteString("\t\t}\n")
+	sb.WriteString("\t}\n")
 
 	if r.Grabit != nil {
 		for _, w := range r.Grabit.Wheres {
@@ -427,6 +483,16 @@ func genParamParser(r RouteDecl) string {
 			sb.WriteString(fmt.Sprintf("\tif params.%s==\"\"{\n", toPascalCase(v)))
 			sb.WriteString(fmt.Sprintf("\t\tparams.%s=%q\n", toPascalCase(v), def))
 			sb.WriteString("\t}\n")
+			if len(r.Grabit.OrderByAllowed) > 0 {
+				sb.WriteString(fmt.Sprintf("\tvalidSort:=map[string]bool{"))
+				for _, val := range r.Grabit.OrderByAllowed {
+					sb.WriteString(fmt.Sprintf("%q:true,", val))
+				}
+				sb.WriteString("}\n")
+				sb.WriteString(fmt.Sprintf("\tif !validSort[params.%s]{\n", toPascalCase(v)))
+				sb.WriteString(fmt.Sprintf("\t\tparams.%s=%q\n", toPascalCase(v), def))
+				sb.WriteString("\t}\n")
+			}
 		}
 		if r.Grabit.OrderDir != nil && r.Grabit.OrderDir.Kind == SourceQuery {
 			v := r.Grabit.OrderDir.Value
@@ -438,6 +504,9 @@ func genParamParser(r RouteDecl) string {
 			sb.WriteString(fmt.Sprintf("\tif params.%s==\"\"{\n", toPascalCase(v)))
 			sb.WriteString(fmt.Sprintf("\t\tparams.%s=%q\n", toPascalCase(v), def))
 			sb.WriteString("\t}\n")
+			sb.WriteString(fmt.Sprintf("\tif params.%s!=\"asc\"&&params.%s!=\"desc\"{\n", toPascalCase(v), toPascalCase(v)))
+			sb.WriteString(fmt.Sprintf("\t\tparams.%s=%q\n", toPascalCase(v), def))
+			sb.WriteString("\t}\n")
 		}
 		if r.Grabit.Limit != nil && r.Grabit.Limit.Kind == SourceQuery {
 			v := r.Grabit.Limit.Value
@@ -447,6 +516,23 @@ func genParamParser(r RouteDecl) string {
 			}
 			sb.WriteString(fmt.Sprintf("\tif v:=r.URL.Query().Get(%q);v!=\"\"{\n", v))
 			sb.WriteString("\t\tn,_:=strconv.Atoi(v)\n")
+			if r.Grabit.LimitMax > 0 {
+				sb.WriteString(fmt.Sprintf("\t\tif n>%d{n=%d}\n", r.Grabit.LimitMax, r.Grabit.LimitMax))
+			}
+			sb.WriteString(fmt.Sprintf("\t\tparams.%s=n\n", toPascalCase(v)))
+			sb.WriteString("\t}else{\n")
+			sb.WriteString(fmt.Sprintf("\t\tparams.%s=%d\n", toPascalCase(v), def))
+			sb.WriteString("\t}\n")
+		}
+		if r.Grabit.Page != nil && r.Grabit.Page.Kind == SourceQuery {
+			v := r.Grabit.Page.Value
+			def := r.Grabit.PageDefault
+			if def == 0 {
+				def = 1
+			}
+			sb.WriteString(fmt.Sprintf("\tif v:=r.URL.Query().Get(%q);v!=\"\"{\n", v))
+			sb.WriteString("\t\tn,_:=strconv.Atoi(v)\n")
+			sb.WriteString("\t\tif n<1{n=1}\n")
 			sb.WriteString(fmt.Sprintf("\t\tparams.%s=n\n", toPascalCase(v)))
 			sb.WriteString("\t}else{\n")
 			sb.WriteString(fmt.Sprintf("\t\tparams.%s=%d\n", toPascalCase(v), def))
@@ -464,7 +550,7 @@ func genParamParser(r RouteDecl) string {
 		}
 	}
 
-	sb.WriteString("\treturn params\n")
+	sb.WriteString("\treturn params,true\n")
 	sb.WriteString("}\n\n")
 
 	return sb.String()

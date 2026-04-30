@@ -15,6 +15,7 @@ func GenRepository(proj *Project, feat Feature) string {
 	needsFmt := false
 	needsStrings := false
 	needsTime := false
+	needsStrconv := false
 	for _, r := range feat.Routes {
 		if r.Grabit != nil && r.Grabit.Operation == GrabitSelect && !r.Grabit.One {
 			needsFmt = true
@@ -28,7 +29,18 @@ func GenRepository(proj *Project, feat Feature) string {
 		if r.Grabit != nil && r.Grabit.Operation == GrabitInsert {
 			needsTime = true
 		}
-		if r.Grabit != nil && r.Grabit.Operation == GrabitDelete {
+		if r.Grabit != nil {
+			for _, w := range r.Grabit.Wheres {
+				if w.Source.Kind == SourceQuery && w.Op != "==" && w.Op != "!=" {
+					model := findModel(proj, r.Grabit.Model)
+					if model != nil {
+						f := findFieldByName(model, w.Field)
+						if f != nil && (f.Type.Kind == FieldInt || f.Type.Kind == FieldFloat) {
+							needsStrconv = true
+						}
+					}
+				}
+			}
 		}
 	}
 	if needsFmt {
@@ -39,6 +51,25 @@ func GenRepository(proj *Project, feat Feature) string {
 	}
 	if needsTime {
 		sb.WriteString("\t\"time\"\n")
+	}
+	if needsStrconv {
+		sb.WriteString("\t\"strconv\"\n")
+	}
+	needsUUID := false
+	for _, r := range feat.Routes {
+		if r.Grabit != nil && r.Grabit.Operation == GrabitInsert {
+			model := findModel(proj, r.Grabit.Model)
+			if model != nil {
+				for _, f := range model.Fields {
+					if hasDec(f.Decorators, "primary") && hasDec(f.Decorators, "default") && decArg(f.Decorators, "default") == "gen_random_uuid" {
+						needsUUID = true
+					}
+				}
+			}
+		}
+	}
+	if needsUUID {
+		sb.WriteString("\t\"github.com/google/uuid\"\n")
 	}
 	sb.WriteString(")\n\n")
 
@@ -166,10 +197,27 @@ func genListRepo(r RouteDecl, m *ManifestDecl, proj *Project) string {
 				sb.WriteString(fmt.Sprintf("\t\tconditions=append(conditions,fmt.Sprintf(\"%s ILIKE $%%d\",argPos))\n", colName))
 				sb.WriteString(fmt.Sprintf("\t\targs=append(args,\"%%\"+*params.%s+\"%%\")\n", pascalSrc))
 			} else {
-				sb.WriteString(fmt.Sprintf("\t\tconditions=append(conditions,fmt.Sprintf(\"%s %s $%%d\",argPos))\n", colName, goOp))
-				sb.WriteString(fmt.Sprintf("\t\targs=append(args,*params.%s)\n", pascalSrc))
+				modelField := findFieldByName(m, w.Field)
+				if modelField != nil && (modelField.Type.Kind == FieldInt || modelField.Type.Kind == FieldFloat) {
+					if modelField.Type.Kind == FieldInt {
+						sb.WriteString(fmt.Sprintf("\t\tif v,err:=strconv.Atoi(*params.%s);err==nil{\n", pascalSrc))
+						sb.WriteString(fmt.Sprintf("\t\t\tconditions=append(conditions,fmt.Sprintf(\"%s %s $%%d\",argPos))\n", colName, goOp))
+						sb.WriteString("\t\t\targs=append(args,v)\n")
+						sb.WriteString("\t\t\targPos++\n")
+						sb.WriteString("\t\t}\n")
+					} else {
+						sb.WriteString(fmt.Sprintf("\t\tif v,err:=strconv.ParseFloat(*params.%s,64);err==nil{\n", pascalSrc))
+						sb.WriteString(fmt.Sprintf("\t\t\tconditions=append(conditions,fmt.Sprintf(\"%s %s $%%d\",argPos))\n", colName, goOp))
+						sb.WriteString("\t\t\targs=append(args,v)\n")
+						sb.WriteString("\t\t\targPos++\n")
+						sb.WriteString("\t\t}\n")
+					}
+				} else {
+					sb.WriteString(fmt.Sprintf("\t\tconditions=append(conditions,fmt.Sprintf(\"%s %s $%%d\",argPos))\n", colName, goOp))
+					sb.WriteString(fmt.Sprintf("\t\targs=append(args,*params.%s)\n", pascalSrc))
+					sb.WriteString("\t\targPos++\n")
+				}
 			}
-			sb.WriteString("\t\targPos++\n")
 			sb.WriteString("\t}\n")
 		case SourceParam:
 			sb.WriteString(fmt.Sprintf("\tconditions=append(conditions,fmt.Sprintf(\"%s %s $%%d\",argPos))\n", colName, whereOpToGo(w.Op)))
@@ -194,7 +242,18 @@ func genListRepo(r RouteDecl, m *ManifestDecl, proj *Project) string {
 	sb.WriteString("\torderBy:=\"created_at\"\n")
 	if r.Grabit.OrderBy != nil && r.Grabit.OrderBy.Kind == SourceQuery {
 		sb.WriteString(fmt.Sprintf("\tif params.%s!=\"\"{\n", toPascalCase(r.Grabit.OrderBy.Value)))
-		sb.WriteString(fmt.Sprintf("\t\torderBy=params.%s\n", toPascalCase(r.Grabit.OrderBy.Value)))
+		if len(r.Grabit.OrderByAllowed) > 0 {
+			sb.WriteString(fmt.Sprintf("\t\tvalidSort:=map[string]bool{"))
+			for _, val := range r.Grabit.OrderByAllowed {
+				sb.WriteString(fmt.Sprintf("%q:true,", val))
+			}
+			sb.WriteString("}\n")
+			sb.WriteString(fmt.Sprintf("\t\tif validSort[params.%s]{\n", toPascalCase(r.Grabit.OrderBy.Value)))
+			sb.WriteString(fmt.Sprintf("\t\t\torderBy=params.%s\n", toPascalCase(r.Grabit.OrderBy.Value)))
+			sb.WriteString("\t\t}\n")
+		} else {
+			sb.WriteString(fmt.Sprintf("\t\torderBy=params.%s\n", toPascalCase(r.Grabit.OrderBy.Value)))
+		}
 		sb.WriteString("\t}\n")
 	}
 
@@ -212,11 +271,19 @@ func genListRepo(r RouteDecl, m *ManifestDecl, proj *Project) string {
 		sb.WriteString("\t}\n")
 	}
 
-	sb.WriteString("\toffset:=0\n")
-	if r.Grabit.Offset != nil && r.Grabit.Offset.Kind == SourceQuery {
+	if r.Grabit.Page != nil && r.Grabit.Page.Kind == SourceQuery {
+		sb.WriteString("\tpage:=1\n")
+		sb.WriteString(fmt.Sprintf("\tif params.%s>0{\n", toPascalCase(r.Grabit.Page.Value)))
+		sb.WriteString(fmt.Sprintf("\t\tpage=params.%s\n", toPascalCase(r.Grabit.Page.Value)))
+		sb.WriteString("\t}\n")
+		sb.WriteString("\toffset:=(page-1)*limit\n")
+	} else if r.Grabit.Offset != nil && r.Grabit.Offset.Kind == SourceQuery {
+		sb.WriteString("\toffset:=0\n")
 		sb.WriteString(fmt.Sprintf("\tif params.%s>0{\n", toPascalCase(r.Grabit.Offset.Value)))
 		sb.WriteString(fmt.Sprintf("\t\toffset=params.%s\n", toPascalCase(r.Grabit.Offset.Value)))
 		sb.WriteString("\t}\n")
+	} else {
+		sb.WriteString("\toffset:=0\n")
 	}
 
 	sb.WriteString(fmt.Sprintf("\tquery:=r.db.Rebind(fmt.Sprintf(\"SELECT %s FROM %s \"+whereClause+\" ORDER BY \"+orderBy+\" \"+orderDir+\" LIMIT $%%d OFFSET $%%d\",argPos,argPos+1))\n", modelColumns(m), tbl))
@@ -252,10 +319,15 @@ func genInsertRepo(r RouteDecl, m *ManifestDecl, proj *Project) string {
 
 	var insertCols []string
 	var insertArgs []string
+	var extraArgExprs []string
 	n := 1
 	for _, f := range m.Fields {
 		if hasDec(f.Decorators, "primary") && hasDec(f.Decorators, "default") {
 			if decArg(f.Decorators, "default") == "gen_random_uuid" {
+				insertCols = append(insertCols, toSnakeCase(f.Name))
+				insertArgs = append(insertArgs, fmt.Sprintf("$%d", n))
+				extraArgExprs = append(extraArgExprs, "uuid.Must(uuid.NewV7()).String()")
+				n++
 				continue
 			}
 		}
@@ -263,6 +335,10 @@ func genInsertRepo(r RouteDecl, m *ManifestDecl, proj *Project) string {
 			continue
 		}
 		if f.Type.Kind == FieldTimestamp && hasDec(f.Decorators, "default") && decArg(f.Decorators, "default") == "now" {
+			insertCols = append(insertCols, toSnakeCase(f.Name))
+			insertArgs = append(insertArgs, fmt.Sprintf("$%d", n))
+			extraArgExprs = append(extraArgExprs, "time.Now()")
+			n++
 			continue
 		}
 		if len(vouchFields) > 0 && !vouchFields[f.Name] {
@@ -273,48 +349,30 @@ func genInsertRepo(r RouteDecl, m *ManifestDecl, proj *Project) string {
 		n++
 	}
 
-	var extraCols []string
-	var extraPlaceholders []string
-	var extraArgExprs []string
-	for _, f := range m.Fields {
-		if f.Type.Kind == FieldTimestamp && hasDec(f.Decorators, "default") && decArg(f.Decorators, "default") == "now" {
-			extraCols = append(extraCols, toSnakeCase(f.Name))
-			extraPlaceholders = append(extraPlaceholders, fmt.Sprintf("$%d", n))
-			extraArgExprs = append(extraArgExprs, "time.Now()")
-			n++
-		} else if hasDec(f.Decorators, "auto_update") {
-			extraCols = append(extraCols, toSnakeCase(f.Name))
-			extraPlaceholders = append(extraPlaceholders, fmt.Sprintf("$%d", n))
-			extraArgExprs = append(extraArgExprs, "time.Now()")
-			n++
-		}
-	}
-
-	allCols := append(insertCols, extraCols...)
-	allPlaceholders := append(insertArgs, extraPlaceholders...)
-
 	sb.WriteString(fmt.Sprintf("func (r *Repository)%s(ctx context.Context,req %sRequest)(*%s,error){\n", pascal, pascal, m.Name))
 	sb.WriteString(fmt.Sprintf("\tquery:=r.db.Rebind(\"INSERT INTO %s (%s) VALUES (%s) RETURNING %s\")\n",
-		tbl, strings.Join(allCols, ", "), strings.Join(allPlaceholders, ","), modelColumns(m)))
+		tbl, strings.Join(insertCols, ", "), strings.Join(insertArgs, ","), modelColumns(m)))
 
 	var argParts []string
+	argIdx := 0
 	for _, f := range m.Fields {
 		if hasDec(f.Decorators, "primary") && hasDec(f.Decorators, "default") && decArg(f.Decorators, "default") == "gen_random_uuid" {
+			argParts = append(argParts, extraArgExprs[argIdx])
+			argIdx++
 			continue
 		}
 		if hasDec(f.Decorators, "auto_update") {
 			continue
 		}
 		if f.Type.Kind == FieldTimestamp && hasDec(f.Decorators, "default") && decArg(f.Decorators, "default") == "now" {
+			argParts = append(argParts, extraArgExprs[argIdx])
+			argIdx++
 			continue
 		}
 		if len(vouchFields) > 0 && !vouchFields[f.Name] {
 			continue
 		}
 		argParts = append(argParts, fmt.Sprintf("req.%s", toPascalCase(f.Name)))
-	}
-	for _, ea := range extraArgExprs {
-		argParts = append(argParts, ea)
 	}
 	sb.WriteString(fmt.Sprintf("\targs:=[]any{%s}\n\n", strings.Join(argParts, ",")))
 

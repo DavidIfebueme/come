@@ -69,11 +69,19 @@ func GenTypes(proj *Project, feat Feature) string {
 			if r.Grabit.Limit != nil && r.Grabit.Limit.Kind == SourceQuery {
 				sb.WriteString(fmt.Sprintf("\t%s int\n", toPascalCase(r.Grabit.Limit.Value)))
 			}
+			if r.Grabit.Page != nil && r.Grabit.Page.Kind == SourceQuery {
+				sb.WriteString(fmt.Sprintf("\t%s int\n", toPascalCase(r.Grabit.Page.Value)))
+			}
 			if r.Grabit.Offset != nil && r.Grabit.Offset.Kind == SourceQuery {
 				sb.WriteString(fmt.Sprintf("\t%s int\n", toPascalCase(r.Grabit.Offset.Value)))
 			}
 			sb.WriteString("}\n\n")
 		}
+	}
+
+	for _, b := range feat.Babbles {
+		sb.WriteString(genBabbleSearchType(b))
+		sb.WriteString("\n")
 	}
 
 	return sb.String()
@@ -161,4 +169,22 @@ func findFieldByName(m *ManifestDecl, name string) *FieldDecl {
 		}
 	}
 	return nil
+}
+
+func genBabbleSearchType(b BabbleDecl) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("type %sSearchParams struct{\n", b.Model))
+	sb.WriteString("\tPage  int\n")
+	sb.WriteString("\tLimit int\n")
+	seen := map[string]bool{}
+	for _, rule := range b.Rules {
+		for field := range rule.Filters {
+			if !seen[field] {
+				sb.WriteString(fmt.Sprintf("\t%s string\n", toPascalCase(field)))
+				seen[field] = true
+			}
+		}
+	}
+	sb.WriteString("}\n")
+	return sb.String()
 }

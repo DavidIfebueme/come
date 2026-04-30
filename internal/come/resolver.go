@@ -70,6 +70,11 @@ func ResolveProject(rootDir string) (*Project, error) {
 				proj.Features = append(proj.Features, Feature{Name: strings.ToLower(proj.AppName)})
 			}
 			proj.Features[len(proj.Features)-1].Reshapes = append(proj.Features[len(proj.Features)-1].Reshapes, d)
+		case BabbleDecl:
+			if len(proj.Features) == 0 {
+				proj.Features = append(proj.Features, Feature{Name: strings.ToLower(proj.AppName)})
+			}
+			proj.Features[len(proj.Features)-1].Babbles = append(proj.Features[len(proj.Features)-1].Babbles, d)
 		}
 	}
 	if len(proj.DBs) > 0 {
@@ -127,6 +132,8 @@ func resolveFeature(rootDir, relPath string) (*Feature, error) {
 				feat.RawGo = append(feat.RawGo, d)
 			case ReshapeDecl:
 				feat.Reshapes = append(feat.Reshapes, d)
+			case BabbleDecl:
+				feat.Babbles = append(feat.Babbles, d)
 			}
 		}
 	}

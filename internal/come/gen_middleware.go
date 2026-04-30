@@ -73,6 +73,10 @@ func GenResponse(proj *Project) string {
 	json.NewEncoder(w).Encode(map[string]string{"status":"error","message":message})
 }
 
+func InvalidQueryParams(w http.ResponseWriter){
+	Error(w,http.StatusBadRequest,"Invalid query parameters")
+}
+
 func ValidationErrors(w http.ResponseWriter,errs[]string){
 	w.Header().Set("Content-Type","application/json")
 	w.WriteHeader(http.StatusUnprocessableEntity)

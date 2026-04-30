@@ -48,7 +48,7 @@ func genColumnDef(f FieldDecl, driver string) string {
 		if f.Type.Kind == FieldUUID && driver == "postgres" {
 			col += " PRIMARY KEY DEFAULT gen_random_uuid()"
 		} else if f.Type.Kind == FieldUUID {
-			col += " PRIMARY KEY DEFAULT (lower(hex(randomblob(16))))"
+			col += " PRIMARY KEY"
 		} else {
 			col += " PRIMARY KEY"
 			if def := decArg(f.Decorators, "default"); def != "" {

@@ -34,6 +34,11 @@ func Check(proj *Project) error {
 				return fmt.Errorf("route %s %s %s: %w", f.Routes[j].Method, f.Routes[j].Path, f.Routes[j].Handler, err)
 			}
 		}
+		for j := range f.Babbles {
+			if _, ok := modelMap[f.Babbles[j].Model]; !ok {
+				return fmt.Errorf("babble: unknown model %q", f.Babbles[j].Model)
+			}
+		}
 	}
 	return nil
 }
