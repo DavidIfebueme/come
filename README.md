@@ -1,20 +1,50 @@
 # come
 
-`come` is a vibe coded custom api language that transpiles to go.
+come is a declarative dsl with trollish keywords that compiles into vertically-sliced go apis.
 
-it supports:
-- generic simple api generation
+## quickstart
 
-this language was basically made to troll.
+```bash
+go build ./cmd/comec
+comec init myapi
+cd myapi
+comec add feature users
+comec build
+cd generated
+go run ./cmd/server
+```
 
-## some language keywords
+## keywords
 
-- `vibecode "name"` sets the app name
-- `dripcors "*"` sets cors allow-origin value
-- `cook <method> "<path>" <handler_name>` declares routes
-- `stash "./profiles.db"` optional for generic mode, required for stage 1 mode
-- `tea <genderize|agify|nationalize> "<url>"` optional for generic mode, required for stage 1 mode
+| keyword | purpose |
+|---------|---------|
+| `nogo` | app name |
+| `pileup` | database (postgres/sqlite) |
+| `aura` | server config (port, timeouts) |
+| `unblockthehomies` | cors origin |
+| `bouncer` | jwt auth config |
+| `borrow` | import feature folder |
+| `manifest` | data model |
+| `pick` | enum type |
+| `yeet` | http route |
+| `ward` | middleware on route |
+| `vouch` | request validation |
+| `grabit` | database query |
+| `hurl` | response definition |
+| `spawnchaos` | seed data |
+| `vibes` | environment variables |
+| `rawgo` | inline go code |
+| `spotlight` | database index |
+| `reshape` | custom migration |
+| `homie` | foreign key relationship |
 
+## full documentation
 
-tenks
+see [come.md](come.md) for the complete language reference, project structure, and examples.
 
+## architecture
+
+- **compiler**: zero-dependency go (pure stdlib)
+- **generated code**: stdlib `net/http`, raw `database/sql`, vertical slice architecture
+- **databases**: postgresql + sqlite
+- **auth**: built-in jwt
